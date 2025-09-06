@@ -1,6 +1,6 @@
 # DevPilot AI 🤖
 
-A lightweight CLI coding assistant similar to Claude Code, built without any AI sdks from scratch.
+A lightweight CLI coding assistant similar to Claude Code, built from scratch without AI SDKs.
 
 ## 🚀 Quick Start
 

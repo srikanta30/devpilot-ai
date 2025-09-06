@@ -15,7 +15,7 @@ A lightweight CLI coding assistant similar to Claude Code, built from scratch wi
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone [<repository-url>](https://github.com/srikanta30/devpilot-ai)
 cd devpilot-ai
 
 # Install dependencies

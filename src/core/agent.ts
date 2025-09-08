@@ -137,6 +137,7 @@ export class DevPilotAgent {
       }
     });
 
+
     const askQuestion = (): Promise<string> => {
       return new Promise((resolve, reject) => {
         if (this.shouldExit) {
@@ -157,27 +158,29 @@ export class DevPilotAgent {
     };
 
     // Handle process termination signals
-    process.on('SIGINT', () => {
+    const handleExit = (_signal: string) => {
       console.log(chalk.green.bold('\n👋 Thanks for using DevPilot AI!'));
       console.log(chalk.gray('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
       this.shouldExit = true;
-      // Give a small delay to ensure message is displayed
+      
+      // Properly close readline interface before exiting
+      if (this.rl) {
+        this.rl.close();
+      }
+      
+      // Give a small delay to ensure cleanup completes
       setTimeout(() => {
-        cleanup();
         process.exit(0);
       }, 100);
-    });
+    };
 
-    process.on('SIGTERM', () => {
-      console.log(chalk.green.bold('\n👋 Thanks for using DevPilot AI!'));
-      console.log(chalk.gray('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
-      this.shouldExit = true;
-      // Give a small delay to ensure message is displayed
-      setTimeout(() => {
-        cleanup();
-        process.exit(0);
-      }, 100);
-    });
+    process.on('SIGINT', () => handleExit('SIGINT'));
+    process.on('SIGTERM', () => handleExit('SIGTERM'));
+    
+    // Also handle Ctrl+C on Windows
+    if (process.platform === 'win32') {
+      process.on('SIGBREAK', () => handleExit('SIGBREAK'));
+    }
 
     try {
       // eslint-disable-next-line no-constant-condition

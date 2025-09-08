@@ -90,59 +90,94 @@ export class GeminiClient {
       let buffer = '';
       let currentToolCalls: any[] = [];
       let currentContent = '';
-      let isFirstChunk = true;
 
       for await (const chunk of response.data) {
         buffer += chunk.toString();
-        const lines = buffer.split('\n');
-
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.trim() === '') continue;
-
-          try {
-            const parsed = JSON.parse(line);
-
-            if (parsed.candidates && parsed.candidates[0]) {
-              const candidate = parsed.candidates[0];
-              
-              // Handle content streaming
-              if (candidate.content && candidate.content.parts) {
-                for (const part of candidate.content.parts) {
-                  if (part.text) {
-                    currentContent += part.text;
-                    
-                    // Yield incremental updates for text content
-                    const message: GeminiMessage = {
-                      role: 'assistant',
-                      content: currentContent,
-                    };
-                    if (currentToolCalls.length > 0) {
-                      message.toolCalls = currentToolCalls;
-                    }
-                    yield message;
-                  }
+        
+        // Try to parse complete JSON objects from the buffer
+        let startIndex = 0;
+        let braceCount = 0;
+        let inString = false;
+        let escapeNext = false;
+        
+        for (let i = 0; i < buffer.length; i++) {
+          const char = buffer[i];
+          
+          if (escapeNext) {
+            escapeNext = false;
+            continue;
+          }
+          
+          if (char === '\\') {
+            escapeNext = true;
+            continue;
+          }
+          
+          if (char === '"' && !escapeNext) {
+            inString = !inString;
+            continue;
+          }
+          
+          if (!inString) {
+            if (char === '{') {
+              if (braceCount === 0) {
+                startIndex = i;
+              }
+              braceCount++;
+            } else if (char === '}') {
+              braceCount--;
+              if (braceCount === 0) {
+                // Found a complete JSON object
+                const jsonStr = buffer.slice(startIndex, i + 1);
+                try {
+                  const parsed = JSON.parse(jsonStr);
                   
-                  // Handle function calls
-                  if (part.functionCall) {
-                    const functionCall = part.functionCall;
-                    currentToolCalls.push({
-                      id: 'call_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-                      type: 'function',
-                      function: {
-                        name: functionCall.name,
-                        arguments: functionCall.args || {},
-                      },
-                    });
+                  if (parsed.candidates && parsed.candidates[0]) {
+                    const candidate = parsed.candidates[0];
+                    
+                    // Handle content streaming
+                    if (candidate.content && candidate.content.parts) {
+                      for (const part of candidate.content.parts) {
+                        if (part.text) {
+                          currentContent += part.text;
+                          
+                          // Yield incremental updates for text content
+                          const message: GeminiMessage = {
+                            role: 'assistant',
+                            content: currentContent,
+                          };
+                          if (currentToolCalls.length > 0) {
+                            message.toolCalls = currentToolCalls;
+                          }
+                          yield message;
+                        }
+                        
+                        // Handle function calls
+                        if (part.functionCall) {
+                          const functionCall = part.functionCall;
+                          currentToolCalls.push({
+                            id: 'call_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+                            type: 'function',
+                            function: {
+                              name: functionCall.name,
+                              arguments: functionCall.args || {},
+                            },
+                          });
+                        }
+                      }
+                    }
+                  }
+                } catch (parseError) {
+                  // Skip invalid JSON chunks
+                  if (this.config.verbose) {
+                    console.warn('⚠️  Skipping invalid JSON chunk:', parseError);
                   }
                 }
+                
+                // Remove processed JSON from buffer
+                buffer = buffer.slice(i + 1);
+                i = -1; // Reset index for next iteration
               }
-            }
-          } catch (parseError) {
-            // Skip invalid JSON chunks
-            if (this.config.verbose) {
-              console.warn('⚠️  Skipping invalid JSON chunk:', parseError);
             }
           }
         }
@@ -168,46 +203,64 @@ export class GeminiClient {
   }
 
   private convertToGeminiContents(messages: GeminiMessage[]): any[] {
-    return messages.map(msg => {
-      const baseMessage: any = {
-        role: msg.role === 'assistant' ? 'model' : 'user',
-        parts: [],
-      };
-
-      // Add text content if present
-      if (msg.content) {
-        baseMessage.parts.push({ text: msg.content });
+    // Handle system message specially - combine with first user message
+    let systemContent = '';
+    const processedMessages = messages.filter(msg => {
+      if (msg.role === 'system') {
+        systemContent = msg.content;
+        return false; // Remove system message from regular processing
       }
-
-      // Add tool calls if present
-      if (msg.toolCalls && msg.toolCalls.length > 0) {
-        for (const toolCall of msg.toolCalls) {
-          baseMessage.parts.push({
-            functionCall: {
-              name: toolCall.function.name,
-              args: toolCall.function.arguments,
-            },
-          });
-        }
-      }
-
-      // Add tool results if present
-      if (msg.toolResults && msg.toolResults.length > 0) {
-        for (const toolResult of msg.toolResults) {
-          baseMessage.parts.push({
-            functionResponse: {
-              name: 'function_response', // This might need to be the actual function name
-              response: {
-                name: toolResult.tool_call_id,
-                content: toolResult.content,
-              },
-            },
-          });
-        }
-      }
-
-      return baseMessage;
+      return true;
     });
+
+    return processedMessages
+      .map((msg, index) => {
+        const baseMessage: any = {
+          role: msg.role === 'assistant' ? 'model' : 'user',
+          parts: [],
+        };
+
+        // Combine system content with first user message
+        let content = msg.content;
+        if (index === 0 && msg.role === 'user' && systemContent) {
+          content = `${systemContent}\n\n${msg.content}`;
+        }
+
+        // Add text content if present
+        if (content) {
+          baseMessage.parts.push({ text: content });
+        }
+
+        // Add tool calls if present
+        if (msg.toolCalls && msg.toolCalls.length > 0) {
+          for (const toolCall of msg.toolCalls) {
+            baseMessage.parts.push({
+              functionCall: {
+                name: toolCall.function.name,
+                args: toolCall.function.arguments,
+              },
+            });
+          }
+        }
+
+        // Add tool results if present
+        if (msg.toolResults && msg.toolResults.length > 0) {
+          for (const toolResult of msg.toolResults) {
+            baseMessage.parts.push({
+              functionResponse: {
+                name: 'function_response', // This might need to be the actual function name
+                response: {
+                  name: toolResult.tool_call_id,
+                  content: toolResult.content,
+                },
+              },
+            });
+          }
+        }
+
+        return baseMessage;
+      })
+      .filter(msg => msg.parts.length > 0); // Filter out messages with no parts to satisfy Gemini API requirements
   }
 
   private convertToGeminiTools(tools: ToolDefinition[]): any[] {

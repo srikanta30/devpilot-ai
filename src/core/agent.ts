@@ -4,6 +4,7 @@ import ora from 'ora';
 import { GeminiClient } from './gemini-client';
 import { GeminiMessage, ToolDefinition, AgentOptions, ToolCall, ToolResult } from '../types';
 import { fileReaderTool, fileExplorerTool, bashTool, fileEditorTool, codeSearchTool } from '../tools';
+import { getSystemPrompt } from './system-prompt';
 
 export class DevPilotAgent {
   private client: GeminiClient;
@@ -26,8 +27,30 @@ export class DevPilotAgent {
   }
 
   async startChat(): Promise<void> {
-    console.log(chalk.blue.bold('🤖 DevPilot AI - Your Coding Assistant'));
-    console.log(chalk.gray('Type your request or "exit" to quit\n'));
+    // Clear screen and show welcome banner
+    console.clear();
+    
+    // ASCII Art Banner
+    console.log(chalk.cyan.bold(`
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║    ██████╗ ███████╗██╗   ██╗██████╗ ██╗     ██╗ ██████╗ ████████╗            ║
+║    ██╔══██╗██╔════╝██║   ██║██╔══██╗██║     ██║██╔═══██╗╚══██╔══╝            ║
+║    ██║  ██║█████╗  ██║   ██║██████╔╝██║     ██║██║   ██║   ██║               ║
+║    ██║  ██║██╔══╝  ╚██╗ ██╔╝██╔═══╝ ██║     ██║██║   ██║   ██║               ║
+║    ██████╔╝███████╗ ╚████╔╝ ██║     ███████╗██║╚██████╔╝   ██║               ║
+║    ╚═════╝ ╚══════╝  ╚═══╝  ╚═╝     ╚══════╝╚═╝ ╚═════╝    ╚═╝               ║
+║                                                                              ║
+║                                 DevPilot AI                                  ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+`));
+
+    // Welcome message with styling
+    console.log(chalk.green.bold('✨ Welcome to DevPilot AI! ✨'));
+    console.log(chalk.yellow('🚀 Your intelligent coding companion powered by Google Gemini'));
+    console.log(chalk.gray('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
+    console.log(chalk.cyan.bold('\n🎯 Type your request below or "exit" to quit\n'));
 
     // Add system message
     this.conversation.push({
@@ -35,15 +58,24 @@ export class DevPilotAgent {
       content: this.getSystemPrompt(),
     });
 
-    // Check if input is from a pipe (non-TTY)
-    const isInteractive = process.stdin.isTTY;
-
-    // If input is piped, process it first, then switch to interactive mode
-    if (!isInteractive) {
+    // Check if there's piped input
+    const hasPipedInput = process.stdin.isTTY === false;
+    
+    if (hasPipedInput) {
+      // Process piped input first
       await this.processPipedInput();
-      // After processing piped input, switch to interactive mode
-      console.log(chalk.cyan('\n🔄 Piped input processed. Switching to interactive mode...'));
-      console.log(chalk.gray('Continue the conversation or type "exit" to quit\n'));
+      console.log(chalk.gray('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
+      console.log(chalk.cyan.bold('💬 Continue the conversation or type "exit" to quit\n'));
+    } else {
+      // No piped input, send default greeting
+      console.log(chalk.cyan('You: hi'));
+      try {
+        await this.processMessage('hi');
+      } catch (error: any) {
+        console.log(chalk.red(`❌ Error: ${error.message}`));
+      }
+      console.log(chalk.gray('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
+      console.log(chalk.cyan.bold('💬 Continue the conversation or type "exit" to quit\n'));
     }
 
     // Now start interactive mode (either directly or after piped input)
@@ -81,8 +113,7 @@ export class DevPilotAgent {
     
     let inputStream = process.stdin;
     
-    // If stdin was consumed by piped input, reopen it from the TTY
-    if (!process.stdin.isTTY) {
+
       try {
         inputStream = fs.createReadStream('/dev/tty');
       } catch (error) {
@@ -90,7 +121,7 @@ export class DevPilotAgent {
         console.log(chalk.yellow('Interactive mode not available on this system after piped input.'));
         return;
       }
-    }
+    
 
     this.rl = readline.createInterface({
       input: inputStream,
@@ -100,7 +131,8 @@ export class DevPilotAgent {
     // Handle readline close event (Ctrl+D in interactive mode)
     this.rl.on('close', () => {
       if (!this.shouldExit) {
-        console.log(chalk.yellow('\nGoodbye! 👋'));
+        console.log(chalk.green.bold('\n👋 Thanks for using DevPilot AI!'));
+        console.log(chalk.gray('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
         this.shouldExit = true;
       }
     });
@@ -126,7 +158,8 @@ export class DevPilotAgent {
 
     // Handle process termination signals
     process.on('SIGINT', () => {
-      console.log(chalk.yellow('\nGoodbye! 👋'));
+      console.log(chalk.green.bold('\n👋 Thanks for using DevPilot AI!'));
+      console.log(chalk.gray('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
       this.shouldExit = true;
       // Give a small delay to ensure message is displayed
       setTimeout(() => {
@@ -136,7 +169,8 @@ export class DevPilotAgent {
     });
 
     process.on('SIGTERM', () => {
-      console.log(chalk.yellow('\nGoodbye! 👋'));
+      console.log(chalk.green.bold('\n👋 Thanks for using DevPilot AI!'));
+      console.log(chalk.gray('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
       this.shouldExit = true;
       // Give a small delay to ensure message is displayed
       setTimeout(() => {
@@ -161,7 +195,8 @@ export class DevPilotAgent {
         }
 
         if (this.shouldExit || userInput.toLowerCase() === 'exit' || userInput.toLowerCase() === 'quit') {
-          console.log(chalk.yellow('Goodbye! 👋'));
+          console.log(chalk.green.bold('\n👋 Thanks for using DevPilot AI!'));
+          console.log(chalk.gray('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
           break;
         }
 
@@ -198,11 +233,16 @@ export class DevPilotAgent {
       while (true) {
         // Start spinner only if not already started
         if (!spinner) {
-          spinner = ora('Thinking...').start();
+          spinner = ora({
+            text: 'Thinking...',
+            spinner: 'dots2',
+            color: 'cyan'
+          }).start();
         }
 
-        // Get AI response
-        const response = await this.client.chat(this.conversation, this.tools);
+        // Get AI response - limit to past 5 conversations (10 messages total)
+        const limitedConversation = this.getLimitedConversation();
+        const response = await this.client.chat(limitedConversation, this.tools);
         this.conversation.push(response);
 
         // Stop spinner safely
@@ -216,8 +256,16 @@ export class DevPilotAgent {
           console.log(chalk.green('DevPilot: ') + response.content);
         }
 
+        // Debug: Log tool calls
+        if (this.options.verbose) {
+          console.log('🔍 Response tool calls:', response.toolCalls);
+        }
+
         // Check for tool calls
         if (!response.toolCalls || response.toolCalls.length === 0) {
+          if (this.options.verbose) {
+            console.log('⚠️  No tool calls in response, ending conversation turn');
+          }
           break;
         }
 
@@ -230,7 +278,11 @@ export class DevPilotAgent {
 
           while (attempts < maxAttempts) {
             attempts++;
-            spinner = ora(`Executing ${toolCall.function.name}... (attempt ${attempts}/${maxAttempts})`).start();
+            spinner = ora({
+              text: `Executing ${toolCall.function.name}... (attempt ${attempts}/${maxAttempts})`,
+              spinner: 'dots',
+              color: 'yellow'
+            }).start();
 
             try {
               result = await this.executeTool(toolCall);
@@ -302,7 +354,11 @@ export class DevPilotAgent {
 
         // Continue the loop to get AI's response to tool results
         if (!spinner) {
-          spinner = ora('Processing results...').start();
+          spinner = ora({
+            text: 'Processing results...',
+            spinner: 'dots3',
+            color: 'green'
+          }).start();
         }
       }
     } catch (error: any) {
@@ -329,30 +385,23 @@ export class DevPilotAgent {
   }
 
   private getSystemPrompt(): string {
-    return `You are DevPilot, an expert coding assistant powered by Google's Gemini AI. You have access to powerful tools to help users with coding tasks.
+    return getSystemPrompt(this.tools.map(t => t.name));
+  }
 
-Your capabilities include:
-- Reading and analyzing code files
-- Exploring project structures
-- Running shell commands safely
-- Editing files with search-replace operations
-- Searching code patterns with ripgrep
-
-Guidelines:
-- Be helpful, accurate, and concise
-- Use tools proactively when needed
-- Explain your reasoning when making changes
-- Handle errors gracefully and suggest alternatives
-- Ask for clarification when requirements are unclear
-- Provide complete, runnable code solutions
-
-When working with files:
-- Always check file contents before making changes
-- Use relative paths from the current working directory
-- Be careful with destructive operations
-- Verify your changes after making them
-
-Available tools: ${this.tools.map(t => t.name).join(', ')}`;
+  private getLimitedConversation(): GeminiMessage[] {
+    // Keep the system message and limit to past 5 conversations (10 messages total)
+    // System message + 5 user messages + 5 assistant messages = 11 messages max
+    const maxMessages = 11;
+    
+    if (this.conversation.length <= maxMessages) {
+      return [...this.conversation];
+    }
+    
+    // Keep the system message (first message) and the last 10 messages
+    const systemMessage = this.conversation[0];
+    const recentMessages = this.conversation.slice(-10);
+    
+    return [systemMessage, ...recentMessages];
   }
 
   // Method to programmatically send messages (for testing or automation)
@@ -362,7 +411,8 @@ Available tools: ${this.tools.map(t => t.name).join(', ')}`;
       content: message,
     });
 
-    const response = await this.client.chat(this.conversation, this.tools);
+    const limitedConversation = this.getLimitedConversation();
+    const response = await this.client.chat(limitedConversation, this.tools);
     this.conversation.push(response);
 
     return response;

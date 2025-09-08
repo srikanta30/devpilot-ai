@@ -176,10 +176,46 @@ export class GeminiClient {
   }
 
   private convertToGeminiContents(messages: GeminiMessage[]): any[] {
-    return messages.map(msg => ({
-      role: msg.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: msg.content }],
-    }));
+    return messages.map(msg => {
+      const baseMessage: any = {
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [],
+      };
+
+      // Add text content if present
+      if (msg.content) {
+        baseMessage.parts.push({ text: msg.content });
+      }
+
+      // Add tool calls if present
+      if (msg.toolCalls && msg.toolCalls.length > 0) {
+        for (const toolCall of msg.toolCalls) {
+          baseMessage.parts.push({
+            functionCall: {
+              name: toolCall.function.name,
+              args: toolCall.function.arguments,
+            },
+          });
+        }
+      }
+
+      // Add tool results if present
+      if (msg.toolResults && msg.toolResults.length > 0) {
+        for (const toolResult of msg.toolResults) {
+          baseMessage.parts.push({
+            functionResponse: {
+              name: 'function_response', // This might need to be the actual function name
+              response: {
+                name: toolResult.tool_call_id,
+                content: toolResult.content,
+              },
+            },
+          });
+        }
+      }
+
+      return baseMessage;
+    });
   }
 
   private convertToGeminiTools(tools: ToolDefinition[]): any[] {
@@ -234,22 +270,60 @@ export class GeminiClient {
   private parseGeminiResponse(response: any): GeminiMessage {
     const candidate = response.candidates[0];
 
+    if (this.config.verbose) {
+      console.log('🔍 Parsing Gemini response:', JSON.stringify(response, null, 2));
+    }
+
     const geminiMessage: GeminiMessage = {
       role: 'assistant',
       content: candidate.content.parts[0]?.text || '',
     };
 
     // Handle function calls if present
-    if (candidate.content.parts[0]?.functionCall) {
-      const functionCall = candidate.content.parts[0].functionCall;
-      geminiMessage.toolCalls = [{
-        id: 'call_' + Date.now(),
+    // Check multiple possible locations for function calls in Gemini API response
+    const parts = candidate.content.parts || [];
+    const toolCalls: any[] = [];
+
+    for (const part of parts) {
+      if (part.functionCall) {
+        const functionCall = part.functionCall;
+        if (this.config.verbose) {
+          console.log('🔧 Found function call in part:', functionCall);
+        }
+        toolCalls.push({
+          id: 'call_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+          type: 'function',
+          function: {
+            name: functionCall.name,
+            arguments: functionCall.args || {},
+          },
+        });
+      }
+    }
+
+    // Also check if there are function calls at the candidate level
+    if (candidate.content.functionCall) {
+      const functionCall = candidate.content.functionCall;
+      if (this.config.verbose) {
+        console.log('🔧 Found function call at candidate level:', functionCall);
+      }
+      toolCalls.push({
+        id: 'call_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
         type: 'function',
         function: {
           name: functionCall.name,
-          arguments: functionCall.args,
+          arguments: functionCall.args || {},
         },
-      }];
+      });
+    }
+
+    if (toolCalls.length > 0) {
+      geminiMessage.toolCalls = toolCalls;
+      if (this.config.verbose) {
+        console.log('✅ Parsed tool calls:', toolCalls);
+      }
+    } else if (this.config.verbose) {
+      console.log('⚠️  No tool calls found in response');
     }
 
     return geminiMessage;

@@ -32,10 +32,7 @@ npm link
 
 ```bash
 # Start interactive chat
-echo "hi" | devpilot chat --api-key YOUR_GEMINI_API_KEY
-
-# With verbose logging
-echo "hi" | devpilot chat --api-key YOUR_GEMINI_API_KEY --verbose
+devpilot chat --api-key YOUR_GEMINI_API_KEY
 ```
 
 ## 🔧 Configuration
@@ -54,7 +51,6 @@ devpilot chat [options]
 Options:
   --api-key, -k     Gemini API key (can also be set via GEMINI_API_KEY env var)
   --model, -m       Gemini model to use (default: gemini-2.0-flash-lite)
-  --verbose, -v     Enable verbose logging (default: false)
   --max-tokens      Maximum tokens for response (default: 4096)
   --help, -h        Show help
 ```

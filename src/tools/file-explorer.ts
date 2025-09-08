@@ -4,7 +4,7 @@ import { ToolDefinition } from '../types';
 
 export const fileExplorerTool: ToolDefinition = {
   name: 'list_files',
-  description: 'List files and directories in a given path. Use this to explore the project structure.',
+  description: 'List files and directories in a given path recursively. Automatically excludes build files and dependencies.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -14,19 +14,92 @@ export const fileExplorerTool: ToolDefinition = {
       },
       recursive: {
         type: 'boolean',
-        description: 'Whether to list files recursively. Defaults to false.',
+        description: 'Whether to list files recursively. Defaults to true.',
       },
       max_depth: {
         type: 'number',
-        description: 'Maximum depth for recursive listing. Defaults to 2.',
+        description: 'Maximum depth for recursive listing. Defaults to 5.',
       },
     },
   },
   function: async (args: { path?: string; recursive?: boolean; max_depth?: number }): Promise<string> => {
     try {
       const targetPath = args.path ? path.resolve(args.path) : process.cwd();
-      const recursive = args.recursive || false;
-      const maxDepth = args.max_depth || 2;
+      const recursive = args.recursive !== false; // Default to true
+      const maxDepth = args.max_depth || 5;
+
+      // Define patterns for build files and dependencies to exclude
+      const excludePatterns = [
+        'node_modules',
+        'dist',
+        'build',
+        '__pycache__',
+        '.git',
+        '.vscode',
+        '.idea',
+        'coverage',
+        '.nyc_output',
+        'target', // Rust
+        'vendor', // Go
+        '.next', // Next.js
+        '.nuxt', // Nuxt.js
+        'out', // Next.js static export
+        '.cache',
+        'tmp',
+        'temp',
+        '.DS_Store',
+        'Thumbs.db',
+        '*.pyc',
+        '*.pyo',
+        '*.pyd',
+        '*.so',
+        '*.dylib',
+        '*.dll',
+        '*.exe',
+        '*.o',
+        '*.a',
+        '*.lib',
+        '*.dll',
+        '*.so',
+        '*.dylib',
+        '*.jar',
+        '*.war',
+        '*.ear',
+        '*.class',
+        '*.log',
+        '*.tmp',
+        '*.temp',
+        '*.swp',
+        '*.swo',
+        '*~',
+        '.env.local',
+        '.env.development.local',
+        '.env.test.local',
+        '.env.production.local',
+      ];
+
+      // Function to check if a path should be excluded
+      const shouldExclude = (filePath: string, fileName: string): boolean => {
+        const relativePath = path.relative(process.cwd(), filePath);
+        
+        // Check against exclude patterns
+        for (const pattern of excludePatterns) {
+          if (pattern.includes('*')) {
+            // Handle wildcard patterns
+            const regex = new RegExp(pattern.replace(/\*/g, '.*'));
+            if (regex.test(fileName) || regex.test(relativePath)) {
+              return true;
+            }
+          } else {
+            // Handle exact matches
+            if (fileName === pattern || relativePath.includes(`/${pattern}/`) || relativePath.startsWith(`${pattern}/`)) {
+              return true;
+            }
+          }
+        }
+        
+        return false;
+      };
 
       if (!fs.existsSync(targetPath)) {
         throw new Error(`Path not found: ${args.path || '.'}`);
@@ -58,12 +131,18 @@ export const fileExplorerTool: ToolDefinition = {
         const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 
         for (const entry of entries) {
+          const fullPath = path.join(dirPath, entry.name);
+          
+          // Skip excluded files and directories
+          if (shouldExclude(fullPath, entry.name)) {
+            continue;
+          }
+
           // Skip hidden files/directories unless explicitly requested
           if (entry.name.startsWith('.') && !args.path?.includes('.')) {
             continue;
           }
 
-          const fullPath = path.join(dirPath, entry.name);
           const relativePath = path.relative(process.cwd(), fullPath);
 
           try {

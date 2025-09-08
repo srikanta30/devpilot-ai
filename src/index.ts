@@ -24,16 +24,16 @@ const argv = yargs(hideBin(process.argv))
           default: 'models/gemini-2.0-flash-lite',
           description: 'Gemini model to use',
         })
-        .option('verbose', {
-          alias: 'v',
-          type: 'boolean',
-          default: false,
-          description: 'Enable verbose logging',
-        })
         .option('max-tokens', {
           type: 'number',
           default: 4096,
           description: 'Maximum tokens for response',
+        })
+        .option('verbose', {
+          alias: 'v',
+          type: 'boolean',
+          default: false,
+          description: 'Enable verbose logging for debugging',
         });
     },
     async (argv) => {

@@ -4,7 +4,7 @@ import { ToolDefinition } from '../types';
 
 export const fileEditorTool: ToolDefinition = {
   name: 'edit_file',
-  description: 'Make edits to text files using search and replace operations. Supports creating new files and modifying existing ones.',
+  description: 'Make edits to text files using search and replace operations. Supports creating new files and modifying existing ones. For new files, use empty old_string. For existing files, old_string must be unique and non-empty.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -34,6 +34,15 @@ export const fileEditorTool: ToolDefinition = {
     create_dirs?: boolean;
   }): Promise<string> => {
     const { path: filePath, old_string, new_string, create_dirs = true } = args;
+
+    // Input validation
+    if (!filePath || filePath.trim() === '') {
+      throw new Error('File path is required and cannot be empty');
+    }
+    
+    if (old_string === undefined || new_string === undefined) {
+      throw new Error('Both old_string and new_string are required');
+    }
 
     try {
       const fullPath = path.resolve(filePath);
@@ -66,10 +75,23 @@ export const fileEditorTool: ToolDefinition = {
         newContent = new_string;
       } else {
         // Editing existing file
-        const oldStringCount = (content.match(new RegExp(old_string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
+        // Handle empty string case specially
+        if (old_string === '') {
+          throw new Error('Cannot replace empty string in existing file. Use append or prepend operations instead, or specify the exact text to replace.');
+        }
+
+        // Use a more robust method to count occurrences
+        let oldStringCount = 0;
+        let searchIndex = 0;
+        let foundIndex = content.indexOf(old_string, searchIndex);
+        while (foundIndex !== -1) {
+          oldStringCount++;
+          searchIndex = foundIndex + 1;
+          foundIndex = content.indexOf(old_string, searchIndex);
+        }
 
         if (oldStringCount === 0) {
-          throw new Error(`The text "${old_string}" was not found in the file`);
+          throw new Error(`The text "${old_string}" was not found in the file. Please check the exact text and try reading the file first to see its contents.`);
         }
 
         if (oldStringCount > 1) {
@@ -86,7 +108,7 @@ export const fileEditorTool: ToolDefinition = {
 
           if (matches.length > 1) {
             const matchDetails = matches.map(m => `line ${m.line}`).join(', ');
-            throw new Error(`The text "${old_string}" appears ${oldStringCount} times in the file at ${matchDetails}. Please provide more context to make it unique.`);
+            throw new Error(`The text "${old_string}" appears ${oldStringCount} times in the file at ${matchDetails}. Please provide more context (include surrounding lines) to make the replacement unique.`);
           }
         }
 

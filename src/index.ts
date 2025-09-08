@@ -34,6 +34,12 @@ const argv = yargs(hideBin(process.argv))
           type: 'boolean',
           default: false,
           description: 'Enable verbose logging for debugging',
+        })
+        .option('streaming', {
+          alias: 's',
+          type: 'boolean',
+          default: true,
+          description: 'Enable streaming responses for real-time text display',
         });
     },
     async (argv) => {
@@ -51,6 +57,7 @@ const argv = yargs(hideBin(process.argv))
           model: argv.model as string,
           verbose: argv.verbose as boolean,
           maxTokens: argv.maxTokens as number,
+          streaming: argv.streaming as boolean,
         });
 
         await agent.startChat();

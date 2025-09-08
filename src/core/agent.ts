@@ -242,19 +242,30 @@ export class DevPilotAgent {
 
         // Get AI response - limit to past 5 conversations (10 messages total)
         const limitedConversation = this.getLimitedConversation();
-        const response = await this.client.chat(limitedConversation, this.tools);
+        
+        let response: GeminiMessage;
+        
+        if (this.options.streaming) {
+          // Use streaming for real-time text display
+          response = await this.handleStreamingResponse(limitedConversation, spinner);
+          spinner = null; // Spinner is handled in streaming method
+        } else {
+          // Use non-streaming for complete response
+          response = await this.client.chat(limitedConversation, this.tools);
+          
+          // Stop spinner safely
+          if (spinner) {
+            spinner.stop();
+            spinner = null;
+          }
+
+          // Display AI response
+          if (response.content) {
+            console.log(chalk.green('DevPilot: ') + response.content);
+          }
+        }
+        
         this.conversation.push(response);
-
-        // Stop spinner safely
-        if (spinner) {
-          spinner.stop();
-          spinner = null;
-        }
-
-        // Display AI response
-        if (response.content) {
-          console.log(chalk.green('DevPilot: ') + response.content);
-        }
 
         // Debug: Log tool calls
         if (this.options.verbose) {
@@ -429,6 +440,65 @@ export class DevPilotAgent {
       role: 'system',
       content: this.getSystemPrompt(),
     }];
+  }
+
+  // Handle streaming response with real-time text display
+  private async handleStreamingResponse(limitedConversation: GeminiMessage[], spinner: any): Promise<GeminiMessage> {
+    // Stop spinner before starting streaming
+    if (spinner) {
+      spinner.stop();
+    }
+
+    let finalResponse: GeminiMessage = {
+      role: 'assistant',
+      content: '',
+    };
+
+    let lastDisplayedLength = 0;
+    let isFirstChunk = true;
+
+    try {
+      for await (const chunk of this.client.chatStream(limitedConversation, this.tools)) {
+        // Update the final response with the latest content
+        finalResponse = chunk;
+
+        // Display incremental text updates
+        if (chunk.content && chunk.content.length > lastDisplayedLength) {
+          const newText = chunk.content.slice(lastDisplayedLength);
+          
+          if (isFirstChunk) {
+            // First chunk - show the prefix
+            process.stdout.write(chalk.green('DevPilot: '));
+            isFirstChunk = false;
+          }
+          
+          // Write the new text without newline
+          process.stdout.write(newText);
+          lastDisplayedLength = chunk.content.length;
+        }
+      }
+
+      // Add newline after streaming is complete
+      if (!isFirstChunk) {
+        console.log(); // Add newline
+      }
+
+      return finalResponse;
+    } catch (error: any) {
+      // If streaming fails, fall back to non-streaming
+      if (this.options.verbose) {
+        console.log(chalk.yellow(`⚠️  Streaming failed, falling back to non-streaming: ${error.message}`));
+      }
+      
+      const fallbackResponse = await this.client.chat(limitedConversation, this.tools);
+      
+      // Display the fallback response
+      if (fallbackResponse.content) {
+        console.log(chalk.green('DevPilot: ') + fallbackResponse.content);
+      }
+      
+      return fallbackResponse;
+    }
   }
 
   // Provide error context for self-correction

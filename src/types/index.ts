@@ -40,6 +40,7 @@ export interface GeminiConfig {
 
 export interface AgentOptions extends GeminiConfig {
   systemPrompt?: string;
+  streaming?: boolean;
 }
 
 export interface ConversationContext {

@@ -62,21 +62,23 @@ export class GeminiClient {
     messages: GeminiMessage[],
     tools?: ToolDefinition[]
   ): AsyncGenerator<GeminiMessage, void, unknown> {
-    const url = `/openai/chat/completions`;
+    const url = `/${this.config.model}:streamGenerateContent`;
 
-    const openaiMessages = this.convertToOpenAIMessages(messages);
-    const openaiTools = tools ? this.convertToOpenAITools(tools) : undefined;
+    // Convert to Gemini API format
+    const geminiContents = this.convertToGeminiContents(messages);
+    const geminiTools = tools ? this.convertToGeminiTools(tools) : undefined;
 
     const requestBody = {
-      model: this.config.model,
-      messages: openaiMessages,
-      max_tokens: this.config.maxTokens,
-      stream: true,
-      ...(openaiTools && { tools: openaiTools }),
+      contents: geminiContents,
+      generationConfig: {
+        maxOutputTokens: this.config.maxTokens,
+      },
+      ...(geminiTools && { tools: geminiTools }),
     };
 
     if (this.config.verbose) {
-      console.log('🔄 Starting streaming request...');
+      console.log('🔄 Starting Gemini streaming request...');
+      console.log('📨 Request body:', JSON.stringify(requestBody, null, 2));
     }
 
     try {
@@ -88,6 +90,7 @@ export class GeminiClient {
       let buffer = '';
       let currentToolCalls: any[] = [];
       let currentContent = '';
+      let isFirstChunk = true;
 
       for await (const chunk of response.data) {
         buffer += chunk.toString();
@@ -96,82 +99,71 @@ export class GeminiClient {
         buffer = lines.pop() || '';
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
+          if (line.trim() === '') continue;
 
-            if (data === '[DONE]') {
-              // Yield any remaining content
-              if (currentContent || currentToolCalls.length > 0) {
-                const message: GeminiMessage = {
-                  role: 'assistant',
-                  content: currentContent,
-                };
-                if (currentToolCalls.length > 0) {
-                  message.toolCalls = currentToolCalls;
-                }
-                yield message;
-              }
-              return;
-            }
+          try {
+            const parsed = JSON.parse(line);
 
-            try {
-              const parsed = JSON.parse(data);
-
-              if (parsed.choices && parsed.choices[0]) {
-                const delta = parsed.choices[0].delta;
-
-                // Accumulate content
-                if (delta.content) {
-                  currentContent += delta.content;
-                }
-
-                // Handle tool calls
-                if (delta.tool_calls) {
-                  for (const toolCall of delta.tool_calls) {
-                    if (toolCall.index !== undefined) {
-                      // Extend array if needed
-                      while (currentToolCalls.length <= toolCall.index) {
-                        currentToolCalls.push({
-                          id: '',
-                          type: 'function',
-                          function: { name: '', arguments: '' },
-                        });
-                      }
-
-                      // Update the tool call
-                      const existing = currentToolCalls[toolCall.index];
-                      if (toolCall.id) existing.id = toolCall.id;
-                      if (toolCall.function?.name) existing.function.name = toolCall.function.name;
-                      if (toolCall.function?.arguments) {
-                        existing.function.arguments += toolCall.function.arguments;
-                      }
+            if (parsed.candidates && parsed.candidates[0]) {
+              const candidate = parsed.candidates[0];
+              
+              // Handle content streaming
+              if (candidate.content && candidate.content.parts) {
+                for (const part of candidate.content.parts) {
+                  if (part.text) {
+                    currentContent += part.text;
+                    
+                    // Yield incremental updates for text content
+                    const message: GeminiMessage = {
+                      role: 'assistant',
+                      content: currentContent,
+                    };
+                    if (currentToolCalls.length > 0) {
+                      message.toolCalls = currentToolCalls;
                     }
+                    yield message;
+                  }
+                  
+                  // Handle function calls
+                  if (part.functionCall) {
+                    const functionCall = part.functionCall;
+                    currentToolCalls.push({
+                      id: 'call_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+                      type: 'function',
+                      function: {
+                        name: functionCall.name,
+                        arguments: functionCall.args || {},
+                      },
+                    });
                   }
                 }
-
-                // Yield incremental updates
-                if (delta.content || delta.tool_calls) {
-                  const message: GeminiMessage = {
-                    role: 'assistant',
-                    content: currentContent,
-                  };
-                  if (currentToolCalls.length > 0) {
-                    message.toolCalls = currentToolCalls;
-                  }
-                  yield message;
-                }
               }
-            } catch (parseError) {
-              // Skip invalid JSON chunks
-              if (this.config.verbose) {
-                console.warn('⚠️  Skipping invalid JSON chunk:', parseError);
-              }
+            }
+          } catch (parseError) {
+            // Skip invalid JSON chunks
+            if (this.config.verbose) {
+              console.warn('⚠️  Skipping invalid JSON chunk:', parseError);
             }
           }
         }
       }
+
+      // Yield final message if there's any content
+      if (currentContent || currentToolCalls.length > 0) {
+        const message: GeminiMessage = {
+          role: 'assistant',
+          content: currentContent,
+        };
+        if (currentToolCalls.length > 0) {
+          message.toolCalls = currentToolCalls;
+        }
+        yield message;
+      }
     } catch (error: any) {
-      throw new Error(`Streaming error: ${error.message}`);
+      if (this.config.verbose) {
+        console.error('❌ Streaming API Error:', error.response?.data || error.message);
+      }
+      throw new Error(`Gemini streaming error: ${error.response?.data?.error?.message || error.message}`);
     }
   }
 

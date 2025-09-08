@@ -21,7 +21,7 @@ const argv = yargs(hideBin(process.argv))
         .option('model', {
           alias: 'm',
           type: 'string',
-          default: 'models/gemini-2.0-flash-lite',
+          default: 'models/gemini-2.5-pro',
           description: 'Gemini model to use',
         })
         .option('max-tokens', {

@@ -53,7 +53,7 @@ devpilot chat [options]
 
 Options:
   --api-key, -k     Gemini API key (can also be set via GEMINI_API_KEY env var)
-  --model, -m       Gemini model to use (default: gemini-2.0-flash-lite)
+  --model, -m       Gemini model to use (default: gemini-2.5-pro)
   --max-tokens      Maximum tokens for response (default: 4096)
   --help, -h        Show help
 ```
